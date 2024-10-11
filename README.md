@@ -1,11 +1,10 @@
--  Hi, I’m Rohit Thakur
+-  Hi 👋, I’m Rohit Thakur
 -  I’m interested in App development
 -  I’m currently learning Flutter and Flutter flow
 -  I’m looking to collaborate on Flutter projects
+-  Languages known: C ,C++, Python, Java, Flutter, Dart
+-  Expertise in : Flutter
 -  How to reach me contact no:9034980358 or Email:rohitthakur0209@gmail.com
--  Pronouns: He
+-  Pronouns: He/ him
+-  Fun fact: i love making android apps
 
-<!---
-Rohitthakur0209/Rohitthakur0209 is a ✨ special ✨ repository because its `README.md` (this file) appears on your GitHub profile.
-You can click the Preview link to take a look at your changes.
---->
