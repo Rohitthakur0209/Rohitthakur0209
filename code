@@ -1,0 +1,329 @@
+import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import 'dart:async';
+import 'package:http/http.dart' as http;
+import 'dart:convert';
+
+void main() {
+  runApp(QuizApp());
+}
+
+class QuizApp extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return ChangeNotifierProvider(
+      create: (context) => QuizModel(),
+      child: MaterialApp(
+        debugShowCheckedModeBanner: false,
+        home: WelcomeScreen(),
+      ),
+    );
+  }
+}
+
+// Welcome Screen
+class WelcomeScreen extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Text(
+              'Welcome\nTo\nBoom-Boom Quiz',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 40),
+            ElevatedButton(
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => QuizScreen()),
+                );
+              },
+              child: const Text(
+                'Start Quiz',
+                style: TextStyle(fontSize: 20),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// QuizModel for state management
+class QuizModel extends ChangeNotifier {
+  List<Map<String, dynamic>> _questions = [];
+  int _currentIndex = 0;
+  int _score = 0;
+  bool _isAnswered = false;
+  int skippedQuestions = 0;
+  int wrongAttempts = 0;
+
+  List<Map<String, dynamic>> get questions => _questions;
+  int get currentIndex => _currentIndex;
+  int get score => _score;
+  bool get isAnswered => _isAnswered;
+
+  // Fetch questions from API
+  Future<void> fetchQuestions() async {
+    final response = await http.get(Uri.parse('https://opentdb.com/api.php?amount=20&type=multiple'));
+    if (response.statusCode == 200) {
+      final data = json.decode(response.body);
+      final List<dynamic> apiQuestions = data['results'];
+      _questions = apiQuestions.map((q) {
+        final options = List<String>.from(q['incorrect_answers']);
+        options.add(q['correct_answer']);
+        options.shuffle(); // Shuffle options for randomness
+        return {
+          'question': q['question'],
+          'options': options,
+          'correct_answer': q['correct_answer'],
+        };
+      }).toList();
+      _questions = _questions.sublist(0, 10); // Select 10 random questions
+      notifyListeners();
+    } else {
+      throw Exception('Failed to load questions from API');
+    }
+  }
+
+  void checkAnswer(String selectedAnswer) {
+    if (!_isAnswered) {
+      if (selectedAnswer == _questions[_currentIndex]['correct_answer']) {
+        _score += 10;
+      } else {
+        wrongAttempts++;
+      }
+      _isAnswered = true;
+      notifyListeners();
+    }
+  }
+
+  void nextQuestion({bool skipped = false}) {
+    if (skipped) skippedQuestions++;
+    if (_currentIndex < _questions.length - 1) {
+      _currentIndex++;
+      _isAnswered = false;
+      notifyListeners();
+    }
+  }
+
+  bool isQuizCompleted() {
+    return _currentIndex == _questions.length - 1;
+  }
+
+  void resetQuiz() {
+    _currentIndex = 0;
+    _score = 0;
+    skippedQuestions = 0;
+    wrongAttempts = 0;
+    _isAnswered = false;
+    notifyListeners();
+  }
+}
+
+// Quiz Screen
+class QuizScreen extends StatefulWidget {
+  @override
+  State<QuizScreen> createState() => _QuizScreenState();
+}
+
+class _QuizScreenState extends State<QuizScreen> {
+  late Timer _timer;
+  int _timeLeft = 15;
+
+  @override
+  void initState() {
+    super.initState();
+    final quizModel = Provider.of<QuizModel>(context, listen: false);
+    quizModel.fetchQuestions().then((_) {
+      startTimer(quizModel);
+    });
+  }
+
+  void startTimer(QuizModel quizModel) {
+    _timeLeft = 15;
+    _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (_timeLeft > 0) {
+        setState(() {
+          _timeLeft--;
+        });
+      } else {
+        timer.cancel();
+        quizModel.nextQuestion(skipped: true);
+        if (quizModel.isQuizCompleted()) {
+          _showReport(quizModel);
+        } else {
+          startTimer(quizModel);
+        }
+      }
+    });
+  }
+
+  void _showReport(QuizModel quizModel) {
+    _timer.cancel();
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Quiz Completed'),
+          content: Text(
+            'Total Questions: ${quizModel.questions.length}\n'
+                'Answered Correctly: ${quizModel.score ~/ 10}\n'
+                'Wrong Attempts: ${quizModel.wrongAttempts}\n'
+                'Skipped Questions: ${quizModel.skippedQuestions}\n'
+                'Total Score: ${quizModel.score}',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => SummaryScreen()),
+                );
+              },
+              child: const Text('View Summary'),
+            ),
+            TextButton(
+              onPressed: () {
+                quizModel.resetQuiz();
+                Navigator.of(context).pop(); // Close the dialog
+                setState(() {}); // Restart the quiz
+                startTimer(quizModel); // Restart timer
+              },
+              child: const Text('Restart Quiz'),
+            ),
+            TextButton(
+              onPressed: () {
+                Navigator.pushAndRemoveUntil(
+                  context,
+                  MaterialPageRoute(builder: (context) => WelcomeScreen()),
+                      (route) => false,
+                );
+              },
+              child: const Text('Main Menu'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  @override
+  void dispose() {
+    _timer.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final quizModel = Provider.of<QuizModel>(context);
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Boom-Boom Quiz'),
+      ),
+      body: quizModel.questions.isEmpty
+          ? const Center(child: CircularProgressIndicator())
+          : Padding(
+        padding: const EdgeInsets.only(top: 40.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: Colors.red,
+                  ),
+                  child: Text(
+                    '$_timeLeft',
+                    style: const TextStyle(color: Colors.white, fontSize: 20),
+                  ),
+                ),
+                const SizedBox(width: 20),
+              ],
+            ),
+            const SizedBox(height: 20),
+            Text(
+              'Question ${quizModel.currentIndex + 1}/${quizModel.questions.length}',
+              style: const TextStyle(fontSize: 18),
+            ),
+            const SizedBox(height: 20),
+            Text(
+              quizModel.questions[quizModel.currentIndex]['question'],
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 20),
+            ),
+            const SizedBox(height: 30),
+            ...quizModel.questions[quizModel.currentIndex]['options']
+                .map<Widget>((option) {
+              return Container(
+                margin: const EdgeInsets.symmetric(vertical: 5, horizontal: 20),
+                child: ElevatedButton(
+                  onPressed: quizModel.isAnswered
+                      ? null
+                      : () {
+                    quizModel.checkAnswer(option);
+                    _timer.cancel();
+                    if (quizModel.isQuizCompleted()) {
+                      _showReport(quizModel);
+                    } else {
+                      quizModel.nextQuestion();
+                      startTimer(quizModel);
+                    }
+                  },
+                  child: Text(option),
+                ),
+              );
+            }).toList(),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// Summary Screen
+class SummaryScreen extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    final quizModel = Provider.of<QuizModel>(context, listen: false);
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Quiz Summary'),
+      ),
+      body: ListView.builder(
+        itemCount: quizModel.questions.length,
+        itemBuilder: (context, index) {
+          final question = quizModel.questions[index];
+          return ListTile(
+            title: Text(question['question']),
+            subtitle: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: question['options'].map<Widget>((option) {
+                return Text(
+                  option,
+                  style: TextStyle(
+                    color: option == question['correct_answer']
+                        ? Colors.green
+                        : Colors.red,
+                  ),
+                );
+              }).toList(),
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
